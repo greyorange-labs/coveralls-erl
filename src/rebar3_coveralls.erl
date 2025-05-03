@@ -121,6 +121,7 @@ do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, Task) ->
     File = GetLocal(coveralls_coverdata, undef),
     ServiceName = to_binary(GetLocal(coveralls_service_name, undef)),
     ServiceJobId = to_binary(GetLocal(coveralls_service_job_id, undef)),
+    OutJson = GetLocal(coveralls_out_json, undef),
     F = fun(X) -> X =:= undef orelse X =:= false end,
     CoverExport = Get(cover_export_enabled, false),
     case lists:any(F, [File, ServiceName, ServiceJobId, CoverExport]) of
@@ -137,7 +138,8 @@ do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, Task) ->
     Report0 =
         #{
             service_job_id => ServiceJobId,
-            service_name => ServiceName
+            service_name => ServiceName,
+            coveralls_out_json => OutJson
         },
     Report1 = collect_git_info(Report0),
     Opts = [

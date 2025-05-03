@@ -102,7 +102,16 @@ convert_file([[_ | _] | _] = Filenames, Report, S) ->
         Filenames
     ),
     ConvertedModules = convert_modules(S),
-    jsx:encode(Report#{source_files => ConvertedModules}, []).
+    Json = jsx:encode(Report#{source_files => ConvertedModules}, []),
+    case maps:get(coverall_out_json, Report) of
+        undefined ->
+            ok;
+        FileName ->
+            {ok, File} = file:open(FileName, [write]),
+            ok = file:write(File, Json),
+            ok = file:close(File)
+    end,
+    Json.
 
 convert_and_send_file(Filenames, Report, S) ->
     send(convert_file(Filenames, Report, S), S).
