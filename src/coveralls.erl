@@ -103,12 +103,13 @@ convert_file([[_ | _] | _] = Filenames, Report, S) ->
     ),
     ConvertedModules = convert_modules(S),
     Json = jsx:encode(Report#{source_files => ConvertedModules}, []),
-    case maps:get(coverall_out_json, Report) of
-        undefined ->
+    case maps:get(coveralls_out_json, Report) of
+        undef ->
             ok;
         FileName ->
             {ok, File} = file:open(FileName, [write]),
             ok = file:write(File, Json),
+            rebar_log:info("Coveralls JSON written to ~p", [FileName]),
             ok = file:close(File)
     end,
     Json.
@@ -123,9 +124,9 @@ send(Json, #s{poster = Poster, poster_init = Init}) ->
     Body = to_body(Json, Boundary),
     R = Poster(post, {?COVERALLS_URL, [], Type, Body}, [], []),
     {ok, {{_, ReturnCode, _}, _, Message}} = R,
+    rebar_log:log(info, "Coveralls Send: ReturnCode = ~p Response: ~p", [ReturnCode, Message]),
     case ReturnCode of
         200 ->
-            rebar_log:log(debug, "Coveralls Response: ~p", [Message]),
             ok;
         ErrCode ->
             throw({error, {ErrCode, Message}})
