@@ -109,7 +109,7 @@ convert_file([[_ | _] | _] = Filenames, Report, S) ->
         FileName ->
             {ok, File} = file:open(FileName, [write]),
             ok = file:write(File, Json),
-            rebar_log:info("Coveralls JSON written to ~p", [FileName]),
+            rebar_log:log(info, "Coveralls JSON written to ~p", [FileName]),
             ok = file:close(File)
     end,
     Json.
