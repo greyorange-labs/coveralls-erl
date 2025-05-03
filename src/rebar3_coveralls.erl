@@ -34,10 +34,11 @@
 -module(rebar3_coveralls).
 -behaviour(provider).
 
--export([ init/1
-        , do/1
-        , format_error/1
-        ]).
+-export([
+    init/1,
+    do/1,
+    format_error/1
+]).
 
 -define(PROVIDER, send).
 -define(DEPS, [{default, app_discovery}]).
@@ -47,153 +48,181 @@
 %% ===================================================================
 -spec init(rebar_state:t()) -> {ok, rebar_state:t()}.
 init(State) ->
-  Provider = providers:create([ {name,       ?PROVIDER}
-                              , {module,     ?MODULE}
-                              , {namespace,  coveralls}
-                              , {bare,       true}
-                              , {deps,       ?DEPS}
-                              , {example,    "rebar3 coveralls send"}
-                              , {short_desc, "Send coverdata to coveralls."}
-                              , {desc,       "Send coveralls to coveralls."}
-                              , {opts,       []}
-                              ]),
-  {ok, rebar_state:add_provider(State, Provider)}.
+    Provider = providers:create([
+        {name, ?PROVIDER},
+        {module, ?MODULE},
+        {namespace, coveralls},
+        {bare, true},
+        {deps, ?DEPS},
+        {example, "rebar3 coveralls send"},
+        {short_desc, "Send coverdata to coveralls."},
+        {desc, "Send coveralls to coveralls."},
+        {opts, []}
+    ]),
+    {ok, rebar_state:add_provider(State, Provider)}.
 
 -spec do(rebar_state:t()) -> {ok, rebar_state:t()} | {error, string()}.
 do(State) ->
-  rebar_api:info("Running coveralls...", []),
-  ConvertAndSend = fun coveralls:convert_and_send_file/2,
-  Get            = fun(Key, Def) -> rebar_state:get(State, Key, Def) end,
-  GetLocal       = fun(Key, Def) -> rebar_state:get(State, Key, Def) end,
-  MaybeSkip      = fun() -> ok end,
-  ok = cover_paths(State),
-  try
-    do_coveralls(ConvertAndSend,
-                 Get,
-                 GetLocal,
-                 MaybeSkip,
-                 'send-coveralls'),
-    {ok, State}
-  catch throw:{error, {ErrCode, Msg}} ->
-      io:format("Failed sending coverdata to coveralls, ~p: ~p",
-                [ErrCode, Msg]),
-      {error, rebar_abort}
-  end.
+    rebar_api:info("Running coveralls...", []),
+    ConvertAndSend = fun coveralls:convert_and_send_file/2,
+    Get = fun(Key, Def) -> rebar_state:get(State, Key, Def) end,
+    GetLocal = fun(Key, Def) -> rebar_state:get(State, Key, Def) end,
+    MaybeSkip = fun() -> ok end,
+    ok = cover_paths(State),
+    try
+        do_coveralls(
+            ConvertAndSend,
+            Get,
+            GetLocal,
+            MaybeSkip,
+            'send-coveralls'
+        ),
+        {ok, State}
+    catch
+        throw:{error, {ErrCode, Msg}} ->
+            io:format(
+                "Failed sending coverdata to coveralls, ~p: ~p",
+                [ErrCode, Msg]
+            ),
+            {error, rebar_abort}
+    end.
 
 -spec format_error(any()) -> iolist().
 format_error(Reason) ->
-  io_lib:format("~p", [Reason]).
+    io_lib:format("~p", [Reason]).
 
 cover_paths(State) ->
-  lists:foreach(fun(App) ->
-                    AppDir = rebar_app_info:out_dir(App),
-                    true   = code:add_patha(filename:join([AppDir, "ebin"])),
-                    _      = code:add_patha(filename:join([AppDir, "test"]))
-                end,
-                rebar_state:project_apps(State)),
-  _ = code:add_patha(filename:join([rebar_dir:base_dir(State), "test"])),
-  ok.
+    lists:foreach(
+        fun(App) ->
+            AppDir = rebar_app_info:out_dir(App),
+            rebar_api:info("Adding cover paths for ~p", [AppDir]),
+            true = code:add_patha(filename:join([AppDir, "ebin"])),
+            _ = code:add_patha(filename:join([AppDir, "test"]))
+        end,
+        rebar_state:project_apps(State)
+    ),
+    _ = code:add_patha(filename:join([rebar_dir:base_dir(State), "test"])),
+    ok.
 
 %%=============================================================================
 %% Internal functions
 
 to_binary(List) when is_list(List) ->
-  unicode:characters_to_binary(List, utf8, utf8);
+    unicode:characters_to_binary(List, utf8, utf8);
 to_binary(Atom) when is_atom(Atom) ->
-  atom_to_binary(Atom, utf8);
+    atom_to_binary(Atom, utf8);
 to_binary(Bin) when is_binary(Bin) ->
-  Bin.
+    Bin.
 to_boolean(true) -> true;
-to_boolean(1)    -> true;
-to_boolean(_)    -> false.
+to_boolean(1) -> true;
+to_boolean(_) -> false.
 
 do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, Task) ->
-  File         = GetLocal(coveralls_coverdata, undef),
-  ServiceName  = to_binary(GetLocal(coveralls_service_name, undef)),
-  ServiceJobId = to_binary(GetLocal(coveralls_service_job_id, undef)),
-  F            = fun(X) -> X =:= undef orelse X =:= false end,
-  CoverExport  = Get(cover_export_enabled, false),
-  case lists:any(F, [File, ServiceName, ServiceJobId, CoverExport]) of
-    true  ->
-      throw({error,
-             "need to specify coveralls_* and cover_export_enabled "
-             "in rebar.config"});
-    false ->
-      ok
-  end,
+    File = GetLocal(coveralls_coverdata, undef),
+    ServiceName = to_binary(GetLocal(coveralls_service_name, undef)),
+    ServiceJobId = to_binary(GetLocal(coveralls_service_job_id, undef)),
+    F = fun(X) -> X =:= undef orelse X =:= false end,
+    CoverExport = Get(cover_export_enabled, false),
+    case lists:any(F, [File, ServiceName, ServiceJobId, CoverExport]) of
+        true ->
+            throw(
+                {error,
+                    "need to specify coveralls_* and cover_export_enabled "
+                    "in rebar.config"}
+            );
+        false ->
+            ok
+    end,
 
-  Report0 =
-    #{service_job_id => ServiceJobId,
-      service_name   => ServiceName},
-  Report1 = collect_git_info(Report0),
-  Opts = [{coveralls_repo_token,           repo_token,           string},
-          {coveralls_service_pull_request, service_pull_request, string},
-          {coveralls_commit_sha,           commit_sha,           string},
-          {coveralls_service_number,       service_number,       string},
-          {coveralls_flag_name,            flag_name,            string},
-          {coveralls_parallel,             parallel,             boolean}],
-  Report =
-    lists:foldl(fun({Cfg, Key, Conv}, R) ->
-                    case GetLocal(Cfg, undef) of
-                      undef -> R;
-                      Value when Conv =:= string  -> maps:put(Key, to_binary(Value), R);
-                      Value when Conv =:= boolean -> maps:put(Key, to_boolean(Value), R);
-                      Value -> maps:put(Key, Value, R)
-                    end
-                end, Report1, Opts),
-  rebar_log:log(debug, "Coveralls Report: ~p", [Report]),
+    Report0 =
+        #{
+            service_job_id => ServiceJobId,
+            service_name => ServiceName
+        },
+    Report1 = collect_git_info(Report0),
+    Opts = [
+        {coveralls_repo_token, repo_token, string},
+        {coveralls_service_pull_request, service_pull_request, string},
+        {coveralls_commit_sha, commit_sha, string},
+        {coveralls_service_number, service_number, string},
+        {coveralls_flag_name, flag_name, string},
+        {coveralls_parallel, parallel, boolean}
+    ],
+    Report =
+        lists:foldl(
+            fun({Cfg, Key, Conv}, R) ->
+                case GetLocal(Cfg, undef) of
+                    undef -> R;
+                    Value when Conv =:= string -> maps:put(Key, to_binary(Value), R);
+                    Value when Conv =:= boolean -> maps:put(Key, to_boolean(Value), R);
+                    Value -> maps:put(Key, Value, R)
+                end
+            end,
+            Report1,
+            Opts
+        ),
+    rebar_log:log(debug, "Coveralls Report: ~p", [Report]),
 
-  DoCoveralls = (GetLocal(do_coveralls_after_ct, true) andalso Task == ct)
-    orelse (GetLocal(do_coveralls_after_eunit, true) andalso Task == eunit)
-    orelse Task == 'send-coveralls',
-  case DoCoveralls of
-    true ->
-      io:format("rebar_coveralls:"
+    DoCoveralls =
+        (GetLocal(do_coveralls_after_ct, true) andalso Task == ct) orelse
+            (GetLocal(do_coveralls_after_eunit, true) andalso Task == eunit) orelse
+            Task == 'send-coveralls',
+    case DoCoveralls of
+        true ->
+            io:format(
+                "rebar_coveralls:"
                 "Exporting cover data "
                 "from ~s using service ~s and jobid ~s~n",
-                [File, ServiceName, ServiceJobId]),
-      ok = ConvertAndSend(File, Report);
-    _ -> MaybeSkip()
-  end.
+                [File, ServiceName, ServiceJobId]
+            ),
+            ok = ConvertAndSend(File, Report);
+        _ ->
+            MaybeSkip()
+    end.
 
 git_trim(Str) ->
-  re:replace(Str, "\\s+", "", [global, {return, binary}]).
+    re:replace(Str, "\\s+", "", [global, {return, binary}]).
 
 collect_git_info(Report) ->
-  case rebar_utils:sh("git rev-parse --verify HEAD", [return_on_error]) of
-    {ok, Id} ->
-      Report#{git => collect_git_details(git_trim(Id))};
-    _ ->
-      %% git not available
-      Report
-  end.
+    case rebar_utils:sh("git rev-parse --verify HEAD", [return_on_error]) of
+        {ok, Id} ->
+            Report#{git => collect_git_details(git_trim(Id))};
+        _ ->
+            %% git not available
+            Report
+    end.
 
 collect_git_details(Id) ->
-  {ok, Details} = rebar_utils:sh("git show -s --pretty=format:'%aN%n%aE%n%cN%n%cE%n%s'", []),
-  Info = re:split(Details, "\n", [{return, binary}]),
-  Head = maps:from_list(
-           lists:zip(
-             ['author_name', 'author_email', 'committer_name', 'committer_email', 'message'], Info)),
-  collect_git_branch_details(#{head => Head#{id => Id}}).
+    {ok, Details} = rebar_utils:sh("git show -s --pretty=format:'%aN%n%aE%n%cN%n%cE%n%s'", []),
+    Info = re:split(Details, "\n", [{return, binary}]),
+    Head = maps:from_list(
+        lists:zip(
+            ['author_name', 'author_email', 'committer_name', 'committer_email', 'message'], Info
+        )
+    ),
+    collect_git_branch_details(#{head => Head#{id => Id}}).
 
 collect_git_branch_details(Git) ->
-  {ok, Branch} = rebar_utils:sh("git rev-parse --abbrev-ref HEAD", []),
-  collect_git_remotes(Git#{branch => git_trim(Branch)}).
+    {ok, Branch} = rebar_utils:sh("git rev-parse --abbrev-ref HEAD", []),
+    collect_git_remotes(Git#{branch => git_trim(Branch)}).
 
 collect_git_remotes(Git) ->
-  {ok, Details} = rebar_utils:sh("git remote -v", []),
-  Remotes =
-    lists:foldl(
-      fun(X, R) ->
-          case re:run(X, "\\s\\(push\\)$", [notempty]) of
-            {match, _} ->
-              [Name, URL | _] = re:split(X, "\\s+", [{return, binary}]),
-              [#{name => Name, url => URL} | R];
-            _ ->
-              R
-          end
-      end, [], rebar_string:lexemes(Details, "\n")),
-  Git#{remotes => lists:usort(Remotes)}.
+    {ok, Details} = rebar_utils:sh("git remote -v", []),
+    Remotes =
+        lists:foldl(
+            fun(X, R) ->
+                case re:run(X, "\\s\\(push\\)$", [notempty]) of
+                    {match, _} ->
+                        [Name, URL | _] = re:split(X, "\\s+", [{return, binary}]),
+                        [#{name => Name, url => URL} | R];
+                    _ ->
+                        R
+                end
+            end,
+            [],
+            rebar_string:lexemes(Details, "\n")
+        ),
+    Git#{remotes => lists:usort(Remotes)}.
 
 %%=============================================================================
 %% Tests
@@ -202,56 +231,84 @@ collect_git_remotes(Git) ->
 -include_lib("eunit/include/eunit.hrl").
 
 task_test_() ->
-  File           = "foo",
-  ServiceJobId   = "123",
-  ServiceName    = "bar",
-  ConvertAndSend = fun("foo", #{service_job_id := <<"123">>,
-                                service_name := <<"bar">>}) -> ok end,
-  ConvertWithOpts = fun("foo", #{service_job_id       := <<"123">>,
-                                 service_name         := <<"bar">>,
-                                 service_pull_request := <<"PR#1">>,
-                                 parallel             := true}) -> ok
-                    end,
-  Get            = fun(cover_export_enabled, _) -> true end,
-  GetLocal       = fun(coveralls_coverdata, _)      -> File;
-                      (coveralls_service_name, _)   -> ServiceName;
-                      (coveralls_service_job_id, _) -> ServiceJobId;
-                      (do_coveralls_after_eunit, _) -> true;
-                      (do_coveralls_after_ct, _)    -> true;
-                      (coveralls_repo_token, _)     -> [];
-                      (_, Default)                  -> Default
-                   end,
-  GetLocalAllOpt = fun(coveralls_coverdata, _)      -> File;
-                      (coveralls_service_name, _)   -> ServiceName;
-                      (coveralls_service_job_id, _) -> ServiceJobId;
-                      (coveralls_service_pull_request, _) -> "PR#1";
-                      (coveralls_parallel, _)       -> true;
-                      (do_coveralls_after_eunit, _) -> true;
-                      (do_coveralls_after_ct, _)    -> true;
-                      (coveralls_repo_token, _)     -> [];
-                      (_, Default)                  -> Default
-                   end,
-  GetLocalWithCoverallsTask
-                 = fun(coveralls_coverdata, _)      -> File;
-                      (coveralls_service_name, _)   -> ServiceName;
-                      (coveralls_service_job_id, _) -> ServiceJobId;
-                      (do_coveralls_after_eunit, _) -> false;
-                      (do_coveralls_after_ct, _)    -> false;
-                      (coveralls_repo_token, _)     -> [];
-                      (_, Default)                  -> Default
-                   end,
-  GetBroken     = fun(cover_export_enabled, _) -> false end,
-  MaybeSkip     = fun() -> skip end,
-  [ ?_assertEqual(ok, do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, eunit))
-  , ?_assertEqual(ok, do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, ct))
-  , ?_assertThrow({error, _}, do_coveralls(ConvertAndSend, GetBroken, GetLocal, MaybeSkip, eunit))
-  , ?_assertThrow({error, _}, do_coveralls(ConvertAndSend, GetBroken, GetLocal, MaybeSkip, ct))
-  , ?_assertEqual(skip, do_coveralls(ConvertAndSend, Get, GetLocalWithCoverallsTask, MaybeSkip, eunit))
-  , ?_assertEqual(skip, do_coveralls(ConvertAndSend, Get, GetLocalWithCoverallsTask, MaybeSkip, ct))
-  , ?_assertEqual(ok, do_coveralls(ConvertAndSend, Get, GetLocalWithCoverallsTask, MaybeSkip, 'send-coveralls'))
-  , ?_assertEqual(ok, do_coveralls(ConvertWithOpts, Get, GetLocalAllOpt, MaybeSkip, eunit))
-  , ?_assertEqual(ok, do_coveralls(ConvertWithOpts, Get, GetLocalAllOpt, MaybeSkip, ct))
-  ].
+    File = "foo",
+    ServiceJobId = "123",
+    ServiceName = "bar",
+    ConvertAndSend = fun(
+        "foo",
+        #{
+            service_job_id := <<"123">>,
+            service_name := <<"bar">>
+        }
+    ) ->
+        ok
+    end,
+    ConvertWithOpts = fun(
+        "foo",
+        #{
+            service_job_id := <<"123">>,
+            service_name := <<"bar">>,
+            service_pull_request := <<"PR#1">>,
+            parallel := true
+        }
+    ) ->
+        ok
+    end,
+    Get = fun(cover_export_enabled, _) -> true end,
+    GetLocal = fun
+        (coveralls_coverdata, _) -> File;
+        (coveralls_service_name, _) -> ServiceName;
+        (coveralls_service_job_id, _) -> ServiceJobId;
+        (do_coveralls_after_eunit, _) -> true;
+        (do_coveralls_after_ct, _) -> true;
+        (coveralls_repo_token, _) -> [];
+        (_, Default) -> Default
+    end,
+    GetLocalAllOpt = fun
+        (coveralls_coverdata, _) -> File;
+        (coveralls_service_name, _) -> ServiceName;
+        (coveralls_service_job_id, _) -> ServiceJobId;
+        (coveralls_service_pull_request, _) -> "PR#1";
+        (coveralls_parallel, _) -> true;
+        (do_coveralls_after_eunit, _) -> true;
+        (do_coveralls_after_ct, _) -> true;
+        (coveralls_repo_token, _) -> [];
+        (_, Default) -> Default
+    end,
+    GetLocalWithCoverallsTask =
+        fun
+            (coveralls_coverdata, _) -> File;
+            (coveralls_service_name, _) -> ServiceName;
+            (coveralls_service_job_id, _) -> ServiceJobId;
+            (do_coveralls_after_eunit, _) -> false;
+            (do_coveralls_after_ct, _) -> false;
+            (coveralls_repo_token, _) -> [];
+            (_, Default) -> Default
+        end,
+    GetBroken = fun(cover_export_enabled, _) -> false end,
+    MaybeSkip = fun() -> skip end,
+    [
+        ?_assertEqual(ok, do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, eunit)),
+        ?_assertEqual(ok, do_coveralls(ConvertAndSend, Get, GetLocal, MaybeSkip, ct)),
+        ?_assertThrow(
+            {error, _}, do_coveralls(ConvertAndSend, GetBroken, GetLocal, MaybeSkip, eunit)
+        ),
+        ?_assertThrow({error, _}, do_coveralls(ConvertAndSend, GetBroken, GetLocal, MaybeSkip, ct)),
+        ?_assertEqual(
+            skip, do_coveralls(ConvertAndSend, Get, GetLocalWithCoverallsTask, MaybeSkip, eunit)
+        ),
+        ?_assertEqual(
+            skip, do_coveralls(ConvertAndSend, Get, GetLocalWithCoverallsTask, MaybeSkip, ct)
+        ),
+        ?_assertEqual(
+            ok,
+            do_coveralls(
+                ConvertAndSend, Get, GetLocalWithCoverallsTask, MaybeSkip, 'send-coveralls'
+            )
+        ),
+        ?_assertEqual(ok, do_coveralls(ConvertWithOpts, Get, GetLocalAllOpt, MaybeSkip, eunit)),
+        ?_assertEqual(ok, do_coveralls(ConvertWithOpts, Get, GetLocalAllOpt, MaybeSkip, ct))
+    ].
 
 -endif.
 
